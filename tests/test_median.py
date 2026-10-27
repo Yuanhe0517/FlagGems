@@ -79,6 +79,7 @@ def _median_input_snapshot(inp):
         inp.is_conj(),
         inp.is_neg(),
         inp.untyped_storage().nbytes(),
+        inp.untyped_storage()._cdata,
     )
     # Observe raw storage on CPU, preserving the original dtype and striding.
     # Typed device-to-CPU conversion can change values on some backends.
