@@ -111,7 +111,8 @@ def test_cholesky_inverse_empty_alias(shape, dtype):
     assert result.shape == factor.shape
     assert result.dtype == factor.dtype
     gradient = torch.autograd.grad(result.sum(), factor)[0]
-    utils.gems_assert_equal(gradient, torch.ones_like(factor))
+    assert gradient.device == factor.device
+    utils.gems_assert_equal(gradient, utils.to_reference(torch.ones_like(factor)))
 
 
 @pytest.mark.cholesky_inverse
