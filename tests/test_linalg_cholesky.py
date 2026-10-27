@@ -55,7 +55,9 @@ def _cholesky_input_snapshot(tensor):
         tensor.is_conj(),
         tensor.is_neg(),
     )
-    values = _cholesky_raw_cpu(tensor).contiguous().reshape(-1).view(torch.uint8).clone()
+    values = (
+        _cholesky_raw_cpu(tensor).contiguous().reshape(-1).view(torch.uint8).clone()
+    )
     return metadata, values
 
 
@@ -114,7 +116,9 @@ def test_linalg_cholesky(shape, dtype):
     res_out = _checked_cholesky(A, dtype)
 
     utils.gems_assert_close(
-        _cholesky_comparison_values(res_out), _cholesky_comparison_values(ref_out), dtype
+        _cholesky_comparison_values(res_out),
+        _cholesky_comparison_values(ref_out),
+        dtype,
     )
 
 
@@ -151,7 +155,9 @@ def test_linalg_cholesky_upper(shape, dtype):
     res_out = _checked_cholesky(A, dtype, upper=True)
 
     utils.gems_assert_close(
-        _cholesky_comparison_values(res_out), _cholesky_comparison_values(ref_out), dtype
+        _cholesky_comparison_values(res_out),
+        _cholesky_comparison_values(ref_out),
+        dtype,
     )
 
 
@@ -188,5 +194,7 @@ def test_linalg_cholesky_batch(shape, dtype):
     res_out = _checked_cholesky(A, dtype)
 
     utils.gems_assert_close(
-        _cholesky_comparison_values(res_out), _cholesky_comparison_values(ref_out), dtype
+        _cholesky_comparison_values(res_out),
+        _cholesky_comparison_values(ref_out),
+        dtype,
     )
