@@ -3,13 +3,15 @@ import inspect
 import json
 import math
 from pathlib import Path
-import flag_gems
+
 import pytest
 import torch
 
+import flag_gems
+
 from . import base, consts, utils
-from .generated_operator_utils import OperatorBenchmark
 from .baseline import describe_call, positive_number
+from .generated_operator_utils import OperatorBenchmark
 
 
 def _case_fn(shape, dtype):
