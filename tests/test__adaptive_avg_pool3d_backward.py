@@ -41,7 +41,10 @@ ADAPTIVE_AVG_POOL3D_SHAPES = [
 
 def _pool3d_raw_cpu(value):
     return torch.empty(0, dtype=value.dtype, device="cpu").set_(
-        value.untyped_storage().cpu(), value.storage_offset(), value.shape, value.stride()
+        value.untyped_storage().cpu(),
+        value.storage_offset(),
+        value.shape,
+        value.stride(),
     )
 
 
@@ -91,9 +94,20 @@ def test_adaptive_avg_pool3d_backward(shape, output_size, dtype):
     assert actual.device == inp.device
     assert actual.shape == inp.shape
     assert actual.dtype == inp.dtype
+    actual_storage = actual.untyped_storage()
     assert all(
-        actual.untyped_storage()._cdata != metadata[5] for metadata, _ in snapshots
+        actual_storage._cdata != metadata[5] for metadata, _ in snapshots
     ), "candidate output must not alias either input"
+    if actual.numel():
+        actual_start = actual_storage.data_ptr()
+        actual_end = actual_start + actual_storage.nbytes()
+        for metadata, _ in snapshots:
+            if actual.device == metadata[0] and metadata[8]:
+                input_start = metadata[7]
+                input_end = input_start + metadata[8]
+                assert (
+                    actual_end <= input_start or input_end <= actual_start
+                ), "candidate output storage must not overlap either input"
     utils.gems_assert_close(
         actual.detach().cpu(),
         expected.detach().cpu(),
