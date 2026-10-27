@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from . import base, consts
+from . import base, consts, utils
 
 
 def _case_fn(shape, dtype):
@@ -20,7 +20,9 @@ def _build_inputs_fn(plan, dtype, device):
         imag = torch.randn(shape, dtype=float_dtype, device=device)
         imag.reshape(-1)[::2] = 0
         return (torch.complex(real, imag).to(dtype),)
-    return (torch.randn(shape, dtype=dtype, device=device),)
+    if dtype.is_floating_point:
+        return (torch.randn(shape, dtype=dtype, device=device),)
+    return (utils.generate_tensor_input(shape, dtype, device),)
 
 
 @pytest.mark.isreal

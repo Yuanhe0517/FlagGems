@@ -86,6 +86,7 @@ def _complex_target(value, device):
     if value.dtype == torch.complex128 and flag_gems.vendor_name == "kunlunxin":
         target = (
             value.contiguous()
+            .reshape(-1)
             .view(torch.uint8)
             .to(device)
             .view(value.dtype)
