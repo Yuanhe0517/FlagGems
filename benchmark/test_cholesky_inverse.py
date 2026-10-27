@@ -1,8 +1,9 @@
 import pytest
 import torch
 
-from . import base
+import flag_gems
 
+from . import base
 
 CHOLESKY_INVERSE_SHAPES = [
     (2, 2),
@@ -34,6 +35,14 @@ class CholeskyInverseBenchmark(base.Benchmark):
             )
 
     def build_inputs(self, case):
+        if (
+            case.dtype == torch.float64
+            and torch.device(self.device).type != "cpu"
+            and flag_gems.vendor_name in {"ascend", "iluvatar"}
+        ):
+            pytest.skip(
+                "backend float64 matrix arithmetic/Cholesky cannot construct a valid factor"
+            )
         plan = case.builder_args[0]
         (shape,) = plan.builder_args
         torch.manual_seed(0)
@@ -48,6 +57,10 @@ class CholeskyInverseBenchmark(base.Benchmark):
 
 
 @pytest.mark.cholesky_inverse
+@pytest.mark.skip_native(
+    vendors=["ascend"],
+    reason="native cholesky_inverse falls back to CPU; use a matching H800 --base-data reference",
+)
 def test_cholesky_inverse():
     CholeskyInverseBenchmark(
         op_name="cholesky_inverse",

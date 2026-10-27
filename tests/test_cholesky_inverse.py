@@ -38,6 +38,14 @@ CHOLESKY_INVERSE_DTYPES = [
 
 def _make_positive_definite(shape, dtype, device):
     """Create a positive-definite matrix and return its Cholesky factor."""
+    if (
+        dtype == torch.float64
+        and torch.device(device).type != "cpu"
+        and flag_gems.vendor_name in {"ascend", "iluvatar"}
+    ):
+        pytest.skip(
+            "backend float64 matrix arithmetic/Cholesky cannot construct a valid factor"
+        )
     torch.manual_seed(0)
     n = shape[-1]
     B = torch.randn(shape, dtype=dtype, device=device)
