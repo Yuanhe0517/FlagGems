@@ -29,6 +29,15 @@ def _cholesky_raw_cpu(tensor):
     )
 
 
+def _cholesky_logical_cpu(tensor):
+    values = _cholesky_raw_cpu(tensor)
+    if tensor.is_conj():
+        values = values.conj_physical()
+    if tensor.is_neg():
+        values = -values
+    return values
+
+
 def _cholesky_input_snapshot(tensor):
     metadata = (
         tensor.device,
@@ -98,7 +107,7 @@ def test_linalg_cholesky(shape, dtype):
     res_out = _checked_cholesky(A, dtype)
 
     utils.gems_assert_close(
-        _cholesky_raw_cpu(res_out), _cholesky_raw_cpu(ref_out), dtype
+        _cholesky_logical_cpu(res_out), _cholesky_logical_cpu(ref_out), dtype
     )
 
 
@@ -135,7 +144,7 @@ def test_linalg_cholesky_upper(shape, dtype):
     res_out = _checked_cholesky(A, dtype, upper=True)
 
     utils.gems_assert_close(
-        _cholesky_raw_cpu(res_out), _cholesky_raw_cpu(ref_out), dtype
+        _cholesky_logical_cpu(res_out), _cholesky_logical_cpu(ref_out), dtype
     )
 
 
@@ -172,5 +181,5 @@ def test_linalg_cholesky_batch(shape, dtype):
     res_out = _checked_cholesky(A, dtype)
 
     utils.gems_assert_close(
-        _cholesky_raw_cpu(res_out), _cholesky_raw_cpu(ref_out), dtype
+        _cholesky_logical_cpu(res_out), _cholesky_logical_cpu(ref_out), dtype
     )
