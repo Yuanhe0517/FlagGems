@@ -39,6 +39,12 @@ ADAPTIVE_AVG_POOL3D_SHAPES = [
 ]
 
 
+def _pool3d_raw_cpu(value):
+    return torch.empty(0, dtype=value.dtype, device="cpu").set_(
+        value.untyped_storage().cpu(), value.storage_offset(), value.shape, value.stride()
+    )
+
+
 def _pool3d_input_snapshot(value):
     return (
         value.device,
@@ -48,7 +54,7 @@ def _pool3d_input_snapshot(value):
         value.storage_offset(),
         value.untyped_storage()._cdata,
         value.requires_grad,
-    ), value.detach().cpu().clone()
+    ), _pool3d_raw_cpu(value).contiguous().reshape(-1).view(torch.uint8).clone()
 
 
 @pytest.mark.underscore_adaptive_avg_pool3d_backward
