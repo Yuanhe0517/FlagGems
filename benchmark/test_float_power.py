@@ -49,25 +49,36 @@ def _scalar_tensor_build(plan, dtype, device):
     return 2.0, exponent
 
 
+def _out_buffer(shape, device):
+    # A direct Double factory can silently create Float on Kunlunxin. Preserve
+    # the intended native Double output ABI without a typed conversion.
+    numel = 1
+    for dimension in shape:
+        numel *= dimension
+    return torch.empty(numel * 8, dtype=torch.uint8, device=device).view(
+        torch.float64
+    ).reshape(shape)
+
+
 def _tensor_tensor_out_build(plan, dtype, device):
     (shape,) = plan.builder_args
     base_tensor = torch.rand(shape, dtype=dtype, device=device).add_(0.25)
     exponent = torch.rand(shape, dtype=dtype, device=device).mul_(4).sub_(2)
-    out = torch.empty(shape, dtype=torch.float64, device=device)
+    out = _out_buffer(shape, device)
     return base_tensor, exponent, {"out": out}
 
 
 def _tensor_scalar_out_build(plan, dtype, device):
     (shape,) = plan.builder_args
     base_tensor = torch.rand(shape, dtype=dtype, device=device).add_(0.25)
-    out = torch.empty(shape, dtype=torch.float64, device=device)
+    out = _out_buffer(shape, device)
     return base_tensor, 1.234, {"out": out}
 
 
 def _scalar_tensor_out_build(plan, dtype, device):
     (shape,) = plan.builder_args
     exponent = torch.rand(shape, dtype=dtype, device=device).mul_(4).sub_(2)
-    out = torch.empty(shape, dtype=torch.float64, device=device)
+    out = _out_buffer(shape, device)
     return 2.0, exponent, {"out": out}
 
 
