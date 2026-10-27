@@ -44,6 +44,7 @@ def _input_config(shape):
             ],
             "kwargs": {"keepdim": False},
         },
+        "grid_contract": "flaggems-ac9-core6",
         "reference_implementation": "torch.nuclear_norm",
         "input_recipe": "torch.manual_seed(0);torch.randn(shape,dtype=torch.float32,device=device)",
         "output_aliases": [],
@@ -99,6 +100,8 @@ class OperatorCaseBenchmark(OperatorBenchmark):
             or proof["collection_source_commit"] != commit
             or proof["source_clean"] is not True
             or proof["controller_environment"]["NVIDIA_TF32_OVERRIDE"] != "0"
+            or proof["controller_environment"]["OPS_BASELINE_NUCLEAR_NORM_CURRENT_CORE"]
+            != "1"
         ):
             raise ValueError("nuclear_norm requires a completed native H800 snapshot")
         shapes = data["nuclear_norm"]["shapes"]
