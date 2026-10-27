@@ -17,7 +17,6 @@ import torch
 
 from . import base, consts
 
-
 SHAPES = [
     (8, 16, 50, 4),
     (16, 32, 100, 4),
@@ -38,7 +37,10 @@ def _case_fn(shape, dtype):
     del dtype
     num_bags, embedding_dim, num_weights, samples_per_bag = shape
     yield base.BenchmarkCasePlan(
-        shape={"grad": [num_bags, embedding_dim], "indices": [num_bags * samples_per_bag]},
+        shape={
+            "grad": [num_bags, embedding_dim],
+            "indices": [num_bags * samples_per_bag],
+        },
         params={"num_weights": num_weights, "mode": 0, "padding_idx": -1},
         builder_args=(tuple(shape),),
     )
@@ -55,8 +57,25 @@ def _build_inputs_fn(plan, dtype, device):
     output, offset2bag, bag_size, maximum_indices = torch.ops.aten._embedding_bag(
         weight, indices, offsets, False, 0, False, None, False, -1
     )
+    if offset2bag.numel() == 0:
+        offset2bag = (
+            torch.arange(num_bags, dtype=offset2bag.dtype, device="cpu")
+            .repeat_interleave(samples_per_bag)
+            .to(indices.device)
+        )
     grad = torch.randn_like(output)
-    return grad, indices, offset2bag, bag_size, maximum_indices, num_weights, False, 0, None, -1
+    return (
+        grad,
+        indices,
+        offset2bag,
+        bag_size,
+        maximum_indices,
+        num_weights,
+        False,
+        0,
+        None,
+        -1,
+    )
 
 
 @pytest.mark.embedding_bag_dense_backward
