@@ -12,13 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from contextlib import contextmanager
+
 import pytest
 import torch
 
 import flag_gems
 
 from . import accuracy_utils as utils
-
 
 _EQUAL_SHAPES = [*utils.POINTWISE_SHAPES, (257,), (2, 0, 3)]
 _BROADCAST_CASES = [
@@ -28,18 +29,49 @@ _BROADCAST_CASES = [
 ]
 
 
+def _input_metadata(inp):
+    storage = inp.untyped_storage()
+    return (
+        inp.device,
+        inp.dtype,
+        inp.shape,
+        inp.stride(),
+        inp.storage_offset(),
+        storage.data_ptr(),
+        storage._cdata,
+        storage.nbytes(),
+        inp.requires_grad,
+        inp.is_conj(),
+        inp.is_neg(),
+    )
+
+
+@contextmanager
+def _check_inputs(inp, other, *, self_readonly=False):
+    original_metadata = (_input_metadata(inp), _input_metadata(other))
+    other_before = other.clone()
+    inp_before = inp.clone() if self_readonly else None
+    try:
+        yield
+    finally:
+        assert _input_metadata(inp) == original_metadata[0]
+        assert _input_metadata(other) == original_metadata[1]
+        utils.gems_assert_equal(other, utils.to_reference(other_before, False))
+        if self_readonly:
+            utils.gems_assert_equal(inp, utils.to_reference(inp_before, False))
+
+
 def _make_positive(shape, dtype):
     return torch.empty(shape, dtype=dtype, device=flag_gems.device).uniform_(1.0, 3.0)
 
 
 def _assert_inplace_result(result, mutated_input, original_pointer, reference, dtype):
     assert result is mutated_input
+    assert result.device == mutated_input.device
     assert result.data_ptr() == original_pointer
     assert result.shape == reference.shape
     assert result.dtype == dtype
-    utils.gems_assert_close(
-        result, reference, dtype, equal_nan=True, atol=1e-3
-    )
+    utils.gems_assert_close(result, reference, dtype, equal_nan=True, atol=1e-3)
 
 
 @pytest.mark.inplace
@@ -50,18 +82,16 @@ def test_igamma_equal_shape_(shape, dtype):
     torch.manual_seed(0)
     inp = _make_positive(shape, dtype)
     other = _make_positive(shape, dtype)
-    other_before = other.clone()
     original_pointer = inp.data_ptr()
 
     ref_inp = utils.to_reference(inp.clone(), True)
     ref_other = utils.to_reference(other, True)
     ref_out = ref_inp.igamma_(ref_other)
 
-    with flag_gems.use_gems():
+    with _check_inputs(inp, other), flag_gems.use_gems():
         result = inp.igamma_(other)
 
     _assert_inplace_result(result, inp, original_pointer, ref_out, dtype)
-    utils.gems_assert_equal(other, other_before)
 
 
 @pytest.mark.inplace
@@ -77,7 +107,7 @@ def test_igamma_broadcast_(self_shape, other_shape, dtype):
     ref_other = utils.to_reference(other, True)
     ref_out = ref_inp.igamma_(ref_other)
 
-    with flag_gems.use_gems():
+    with _check_inputs(inp, other), flag_gems.use_gems():
         result = inp.igamma_(other)
 
     _assert_inplace_result(result, inp, original_pointer, ref_out, dtype)
@@ -97,13 +127,11 @@ def test_igamma_noncontiguous_():
     ref_other = utils.to_reference(other, True)
     ref_out = ref_inp.igamma_(ref_other)
 
-    with flag_gems.use_gems():
+    with _check_inputs(inp, other), flag_gems.use_gems():
         result = inp.igamma_(other)
 
     assert result.stride() == original_stride
-    _assert_inplace_result(
-        result, inp, original_pointer, ref_out, torch.float32
-    )
+    _assert_inplace_result(result, inp, original_pointer, ref_out, torch.float32)
 
 
 @pytest.mark.inplace
@@ -122,12 +150,10 @@ def test_igamma_boundary_values_():
     ref_other = utils.to_reference(other, True)
     ref_out = ref_inp.igamma_(ref_other)
 
-    with flag_gems.use_gems():
+    with _check_inputs(inp, other), flag_gems.use_gems():
         result = inp.igamma_(other)
 
-    _assert_inplace_result(
-        result, inp, original_pointer, ref_out, torch.float32
-    )
+    _assert_inplace_result(result, inp, original_pointer, ref_out, torch.float32)
 
 
 @pytest.mark.inplace
@@ -137,5 +163,5 @@ def test_igamma_rejects_nonbroadcastable_shape_():
     other = torch.ones((4,), device=flag_gems.device)
 
     with pytest.raises(RuntimeError):
-        with flag_gems.use_gems():
+        with _check_inputs(inp, other, self_readonly=True), flag_gems.use_gems():
             inp.igamma_(other)
