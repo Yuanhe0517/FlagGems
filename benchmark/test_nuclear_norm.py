@@ -101,17 +101,34 @@ class OperatorCaseBenchmark(OperatorBenchmark):
             or proof["controller_environment"]["NVIDIA_TF32_OVERRIDE"] != "0"
         ):
             raise ValueError("nuclear_norm requires a completed native H800 snapshot")
-        rows = [
-            row
-            for per_dtype in data["nuclear_norm"]["shapes"].values()
-            for dtype, row in per_dtype.items()
-            if dtype == "torch.float32"
-        ]
+        shapes = data["nuclear_norm"]["shapes"]
+        if len(shapes) != len(SHAPES) or any(
+            set(per_dtype) != {"torch.float32"} for per_dtype in shapes.values()
+        ):
+            raise ValueError("H800 snapshot must contain only the six float32 cases")
+        rows = [per_dtype["torch.float32"] for per_dtype in shapes.values()]
         wanted = [_input_config(shape) for shape in SHAPES]
         if len(rows) != len(wanted) or any(
             sum(row.get("config") == config for row in rows) != 1 for config in wanted
         ):
             raise ValueError("H800 nuclear_norm snapshot must match all six core cases")
+        # Reject an incomplete or invalid snapshot before consuming any case.
+        for row in rows:
+            value = row["T_us"]
+            latency = row["latency_ms"]
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value <= 0
+                or isinstance(latency, bool)
+                or not isinstance(latency, (int, float))
+                or not math.isfinite(latency)
+                or not math.isclose(latency, value / 1000, rel_tol=1e-9, abs_tol=1e-12)
+            ):
+                raise ValueError(
+                    "Every H800 core latency must be finite with valid units"
+                )
         return rows, {
             "kind": "external_nvidia",
             "artifact": str(path),
