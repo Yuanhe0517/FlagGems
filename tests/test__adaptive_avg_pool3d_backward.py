@@ -20,7 +20,6 @@ import flag_gems
 from . import accuracy_utils as utils
 from . import conftest as cfg
 
-
 FLOAT_DTYPES = [torch.float32] if cfg.QUICK_MODE else utils.FLOAT_DTYPES
 ADAPTIVE_AVG_POOL3D_OUTPUT_SIZES = [
     (4, 4, 4),
@@ -40,6 +39,18 @@ ADAPTIVE_AVG_POOL3D_SHAPES = [
 ]
 
 
+def _pool3d_input_snapshot(value):
+    return (
+        value.device,
+        value.dtype,
+        value.shape,
+        value.stride(),
+        value.storage_offset(),
+        value.untyped_storage()._cdata,
+        value.requires_grad,
+    ), value.detach().cpu().clone()
+
+
 @pytest.mark.underscore_adaptive_avg_pool3d_backward
 @pytest.mark.parametrize("shape", ADAPTIVE_AVG_POOL3D_SHAPES)
 @pytest.mark.parametrize("output_size", ADAPTIVE_AVG_POOL3D_OUTPUT_SIZES)
@@ -55,13 +66,27 @@ def test_adaptive_avg_pool3d_backward(shape, output_size, dtype):
     expected = torch.ops.aten._adaptive_avg_pool3d_backward.default(
         ref_grad_output, ref_inp
     )
-    actual = flag_gems._adaptive_avg_pool3d_backward(grad_output, inp)
+    snapshots = [_pool3d_input_snapshot(value) for value in (grad_output, inp)]
+    try:
+        actual = flag_gems._adaptive_avg_pool3d_backward(grad_output, inp)
+    finally:
+        for value, (metadata, contents) in zip((grad_output, inp), snapshots):
+            after_metadata, after_contents = _pool3d_input_snapshot(value)
+            assert after_metadata == metadata, "candidate changed input metadata"
+            assert torch.equal(
+                after_contents, contents
+            ), "candidate changed input values"
 
+    assert isinstance(actual, torch.Tensor)
+    assert actual.device == inp.device
     assert actual.shape == inp.shape
     assert actual.dtype == inp.dtype
+    assert all(
+        actual.untyped_storage()._cdata != metadata[5] for metadata, _ in snapshots
+    ), "candidate output must not alias either input"
     utils.gems_assert_close(
-        actual,
-        expected,
+        actual.detach().cpu(),
+        expected.detach().cpu(),
         dtype,
         reduce_dim=output_size[0] * output_size[1] * output_size[2],
     )
