@@ -54,6 +54,10 @@ def _pool3d_input_snapshot(value):
         value.storage_offset(),
         value.untyped_storage()._cdata,
         value.requires_grad,
+        value.untyped_storage().data_ptr(),
+        value.untyped_storage().nbytes(),
+        value.is_conj(),
+        value.is_neg(),
     ), _pool3d_raw_cpu(value).contiguous().reshape(-1).view(torch.uint8).clone()
 
 
