@@ -24,6 +24,15 @@ QUANT_MIN = 0
 QUANT_MAX = 255
 
 
+class FakeQuantizeBenchmark(base.GenericBenchmark):
+    def build_inputs(self, case):
+        try:
+            return super().build_inputs(case)
+        except pytest.skip.Exception:
+            base.Config.skipped_case_ids.add(case.case_id)
+            raise
+
+
 def _case_fn(shape, cur_dtype):
     yield base.BenchmarkCasePlan(
         shape={"input": list(shape)},
@@ -47,7 +56,7 @@ def _build_inputs_fn(plan, cur_dtype, device):
 @pytest.mark.fake_quantize_learnable_per_tensor_affine
 @pytest.mark.underscore_fake_quantize_learnable_per_tensor_affine
 def test_fake_quantize_learnable_per_tensor_affine():
-    bench = base.GenericBenchmark(
+    bench = FakeQuantizeBenchmark(
         op_name="_fake_quantize_learnable_per_tensor_affine",
         torch_op=torch.ops.aten._fake_quantize_learnable_per_tensor_affine,
         case_fn=_case_fn,
