@@ -109,11 +109,12 @@ def test_float_power_scalar_tensor(shape, dtype, base):
 
 
 def _out_needs_cpu_reference(operator):
-    vendor = flag_gems.vendor_name
-    return vendor in {"kunlunxin", "iluvatar"} or (
-        operator == "float_power_tensor_scalar_out"
-        and vendor in {"ascend", "enflame"}
-    )
+    vendors = {
+        "float_power_scalar_tensor_out": {"kunlunxin", "iluvatar"},
+        "float_power_tensor_scalar_out": {"kunlunxin", "iluvatar", "ascend", "enflame"},
+        "float_power_tensor_tensor_out": {"kunlunxin", "iluvatar"},
+    }
+    return flag_gems.vendor_name in vendors.get(operator, ())
 
 
 def _out_raw_cpu(tensor):
@@ -164,9 +165,11 @@ def _out_buffer(operator, shape):
         numel = 1
         for dimension in shape:
             numel *= dimension
-        return torch.empty(
-            numel * 8, dtype=torch.uint8, device=flag_gems.device
-        ).view(torch.float64).reshape(shape)
+        return (
+            torch.empty(numel * 8, dtype=torch.uint8, device=flag_gems.device)
+            .view(torch.float64)
+            .reshape(shape)
+        )
     return torch.empty(shape, dtype=torch.float64, device=flag_gems.device)
 
 
@@ -199,9 +202,11 @@ def _call_out_and_assert(operator, args, out, reference):
     original = _out_metadata(out)
     assert original[1] == torch.float64
     original_storage = _out_raw_cpu(out).untyped_storage()
-    original_bytes = torch.empty(0, dtype=torch.uint8, device="cpu").set_(
-        original_storage, 0, (original_storage.nbytes(),), (1,)
-    ).clone()
+    original_bytes = (
+        torch.empty(0, dtype=torch.uint8, device="cpu")
+        .set_(original_storage, 0, (original_storage.nbytes(),), (1,))
+        .clone()
+    )
     result = getattr(flag_gems, operator)(*args, out=out)
     _assert_out_inputs_unchanged(inputs)
     assert isinstance(result, torch.Tensor) and result is out
@@ -216,7 +221,9 @@ def _call_out_and_assert(operator, args, out, reference):
         assert result.untyped_storage().nbytes() == original_storage.nbytes()
         # Only logical out elements may be written; retain backing padding.
         unused = torch.ones(
-            original_storage.nbytes() // result.element_size(), dtype=torch.bool, device="cpu"
+            original_storage.nbytes() // result.element_size(),
+            dtype=torch.bool,
+            device="cpu",
         )
         torch.empty(0, dtype=torch.bool, device="cpu").set_(
             unused.untyped_storage(), original[4], original[2], original[3]
