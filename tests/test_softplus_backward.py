@@ -87,8 +87,11 @@ def test_softplus_backward(shape, dtype):
     res_grad_output = torch.randn_like(res_inp)
     beta = torch.rand(1).item() + 0.5
     threshold = torch.rand(1).item() * 40.0
-    ref_inp = utils.to_reference(res_inp, True)
-    ref_grad_output = utils.to_reference(res_grad_output, True)
+    # Follow the native Float32 opmath at the piecewise threshold; promoting
+    # the reference to Double can select a different branch.
+    ref_dtype = torch.float32 if dtype in (torch.float16, torch.bfloat16) else dtype
+    ref_inp = utils.to_reference(res_inp, upcast=False).to(dtype=ref_dtype)
+    ref_grad_output = utils.to_reference(res_grad_output, upcast=False).to(dtype=ref_dtype)
     ref_grad_input = torch.ops.aten.softplus_backward(
         ref_grad_output, ref_inp, beta=beta, threshold=threshold
     )
