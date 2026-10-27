@@ -15,6 +15,8 @@
 import pytest
 import torch
 
+import flag_gems
+
 from . import base, consts
 
 # Quantization range for the per-tensor affine fake-quant benchmark.
@@ -31,6 +33,10 @@ def _case_fn(shape, cur_dtype):
 
 
 def _build_inputs_fn(plan, cur_dtype, device):
+    if flag_gems.vendor_name == "kunlunxin" and cur_dtype == torch.float16:
+        pytest.skip(
+            "Kunlunxin native Half fake-quant reference returns float32 instead of Half"
+        )
     (shape,) = plan.builder_args
     inp = torch.randn(shape, dtype=cur_dtype, device=device) * 5
     scale = torch.tensor([0.1], dtype=torch.float32, device=device)
