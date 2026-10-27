@@ -82,6 +82,8 @@ class OperatorCaseBenchmark(OperatorBenchmark):
             "benchmark": "benchmark/test_cudnn_batch_norm_backward.py",
             "scope": "core",
             "input_contract": _INPUT_CONTRACT,
+            "grid_contract": "cudnn_batch_norm_backward.kernelgen-dev.core/v1",
+            "producer_selector": {"OPS_BASELINE_CUDNN_BN_CURRENT_CORE": "1"},
             "input_builder_sha256": hashlib.sha256(
                 inspect.getsource(_build_inputs_fn).encode()
             ).hexdigest(),
