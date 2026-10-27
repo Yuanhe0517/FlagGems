@@ -145,6 +145,7 @@ def test_embedding_bag_dense_backward(
             tuple(value.shape),
             value.stride(),
             value.storage_offset(),
+            value.requires_grad,
             value.untyped_storage().data_ptr(),
         )
         for value in inputs
@@ -176,6 +177,7 @@ def test_embedding_bag_dense_backward(
             tuple(value.shape),
             value.stride(),
             value.storage_offset(),
+            value.requires_grad,
             value.untyped_storage().data_ptr(),
         ) == layout
         assert torch.equal(value.detach().cpu(), original)
