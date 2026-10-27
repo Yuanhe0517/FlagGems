@@ -20,16 +20,53 @@ import flag_gems
 from . import accuracy_utils as utils
 
 
+def _skip_complex_reference(dtype, special=False):
+    if dtype == torch.complex128 and flag_gems.vendor_name == "enflame":
+        pytest.skip(
+            "Enflame target Complex128 construction/typed observation does not preserve values"
+        )
+    if utils.TO_CPU:
+        return
+    if dtype == torch.complex128 and flag_gems.vendor_name == "kunlunxin":
+        pytest.skip("Kunlunxin native isreal does not support Complex128 input")
+    if special and dtype == torch.complex128 and (flag_gems.vendor_name == "iluvatar"):
+        pytest.skip(
+            "Iluvatar native isreal mishandles nonfinite Complex128 imaginary values"
+        )
+
+
+def _complex_target(value, device):
+    if value.dtype == torch.complex128 and flag_gems.vendor_name == "kunlunxin":
+        target = (
+            value.contiguous()
+            .view(torch.uint8)
+            .to(device)
+            .view(value.dtype)
+            .reshape(value.shape)
+        )
+    else:
+        target = value.to(device)
+    assert target.dtype == value.dtype and target.shape == value.shape
+    assert target.device.type == torch.device(device).type
+    return target
+
+
 def _make_complex(shape, dtype, device):
-    """Build a complex tensor whose imaginary part is zero on ~half of it."""
+    """Preserve the requested complex dtype when target factories narrow it."""
+    _skip_complex_reference(dtype)
     float_dtype = torch.float32 if dtype == torch.complex64 else torch.float64
-    real = torch.randn(shape, dtype=float_dtype, device=device)
-    imag = torch.randn(shape, dtype=float_dtype, device=device)
+    factory_device = (
+        "cpu"
+        if dtype == torch.complex128 and flag_gems.vendor_name == "kunlunxin"
+        else device
+    )
+    real = torch.randn(shape, dtype=float_dtype, device=factory_device)
+    imag = torch.randn(shape, dtype=float_dtype, device=factory_device)
     if imag.dim() > 0:
         imag[::2] = 0
     else:
         imag = torch.zeros_like(imag)
-    return torch.complex(real, imag).to(dtype)
+    return _complex_target(torch.complex(real, imag).to(dtype), device)
 
 
 @pytest.mark.isreal
@@ -46,6 +83,7 @@ def test_isreal(shape, dtype):
         inp = _make_complex(shape, dtype, flag_gems.device)
     else:
         inp = torch.randn(shape, dtype=torch.float32, device=flag_gems.device).to(dtype)
+    assert inp.dtype == dtype and inp.device.type == torch.device(flag_gems.device).type
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.isreal(ref_inp)
@@ -59,25 +97,33 @@ def test_isreal(shape, dtype):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.complex64, torch.complex128])
 def test_isreal_special_values(dtype):
     """Zero, negative zero, NaN and infinity, including a NaN imaginary part."""
+    _skip_complex_reference(dtype, special=True)
     if dtype.is_complex:
         float_dtype = torch.float32 if dtype == torch.complex64 else torch.float64
+        factory_device = (
+            "cpu"
+            if dtype == torch.complex128 and flag_gems.vendor_name == "kunlunxin"
+            else flag_gems.device
+        )
         real = [0.0, -0.0, 1.0, -1.0, float("nan"), float("inf"), 1.0, 1.0, -0.0]
         imag = [0.0, -0.0, 0.0, 0.0, 0.0, 0.0, float("nan"), float("inf"), -0.0]
-        inp = torch.complex(
-            torch.tensor(real, dtype=float_dtype, device=flag_gems.device),
-            torch.tensor(imag, dtype=float_dtype, device=flag_gems.device),
-        ).to(dtype)
+        inp = _complex_target(
+            torch.complex(
+                torch.tensor(real, dtype=float_dtype, device=factory_device),
+                torch.tensor(imag, dtype=float_dtype, device=factory_device),
+            ).to(dtype),
+            flag_gems.device,
+        )
     else:
         inp = torch.tensor(
             [0.0, -0.0, 1.0, -1.0, float("nan"), float("inf"), 1.0, 1.0, -0.0],
             dtype=dtype,
             device=flag_gems.device,
         )
+    assert inp.dtype == dtype and inp.device.type == torch.device(flag_gems.device).type
     ref_inp = utils.to_reference(inp)
-
     ref_out = torch.isreal(ref_inp)
     res_out = flag_gems.isreal(inp)
-
     assert res_out.dtype == torch.bool
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -91,6 +137,7 @@ def test_isreal_non_contiguous(dtype):
         base = torch.randn((32, 48), dtype=dtype, device=flag_gems.device)
     inp = base.t()
     assert not inp.is_contiguous()
+    assert inp.dtype == dtype and inp.device.type == torch.device(flag_gems.device).type
     ref_inp = utils.to_reference(inp.clone())
 
     ref_out = torch.isreal(ref_inp)
@@ -105,6 +152,7 @@ def test_isreal_non_contiguous(dtype):
 @pytest.mark.parametrize("dtype", [torch.float32, torch.complex64])
 def test_isreal_empty(dtype):
     inp = torch.empty(0, dtype=dtype, device=flag_gems.device)
+    assert inp.dtype == dtype and inp.device.type == torch.device(flag_gems.device).type
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.isreal(ref_inp)

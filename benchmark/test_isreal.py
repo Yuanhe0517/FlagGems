@@ -1,15 +1,15 @@
 import pytest
 import torch
 
-import flag_gems
-
 from . import base, consts
 
 
 def _case_fn(shape, dtype):
     del dtype
     dims = tuple(shape)
-    yield base.BenchmarkCasePlan(shape={"input": list(dims)}, params={}, builder_args=(dims,))
+    yield base.BenchmarkCasePlan(
+        shape={"input": list(dims)}, params={}, builder_args=(dims,)
+    )
 
 
 def _build_inputs_fn(plan, dtype, device):
@@ -30,7 +30,9 @@ def test_isreal():
         case_fn=_case_fn,
         build_inputs_fn=_build_inputs_fn,
         torch_op=torch.isreal,
-        dtypes=consts.FLOAT_DTYPES + consts.INT_DTYPES + consts.BOOL_DTYPES + consts.COMPLEX_DTYPES,
+        dtypes=consts.FLOAT_DTYPES
+        + consts.INT_DTYPES
+        + consts.BOOL_DTYPES
+        + consts.COMPLEX_DTYPES,
     )
-    bench.set_gems(flag_gems.isreal)
     bench.run()
