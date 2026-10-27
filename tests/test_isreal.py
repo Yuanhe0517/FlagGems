@@ -20,13 +20,51 @@ import flag_gems
 from . import accuracy_utils as utils
 
 
-def _assert_isreal_output(result, inp):
-    # Check the target ABI before a CPU-reference comparison can move values.
+def _isreal_input_metadata(inp):
+    return {
+        "device": inp.device,
+        "dtype": inp.dtype,
+        "shape": tuple(inp.shape),
+        "stride": tuple(inp.stride()),
+        "storage_offset": inp.storage_offset(),
+        "data_ptr": inp.untyped_storage().data_ptr(),
+        "is_conj": inp.is_conj(),
+        "is_neg": inp.is_neg(),
+        "requires_grad": inp.requires_grad,
+    }
+
+
+def _isreal_input_bytes(inp):
+    # Preserve NaN bits; resolve existing lazy flags only on this CPU snapshot.
+    return (
+        inp.detach()
+        .cpu()
+        .resolve_conj()
+        .resolve_neg()
+        .contiguous()
+        .reshape(-1)
+        .view(torch.uint8)
+        .clone()
+    )
+
+
+def _assert_isreal_output(result, original):
+    # Compare against the original target ABI, even if candidate changed input.
     assert isinstance(result, torch.Tensor)
-    assert result.shape == inp.shape and result.dtype == torch.bool
-    assert result.device == inp.device
+    assert result.shape == original["shape"] and result.dtype == torch.bool
+    assert result.device == original["device"]
     if result.numel():
-        assert result.untyped_storage().data_ptr() != inp.untyped_storage().data_ptr()
+        assert result.untyped_storage().data_ptr() != original["data_ptr"]
+
+
+def _call_isreal(inp):
+    original = _isreal_input_metadata(inp)
+    original_bytes = _isreal_input_bytes(inp)
+    result = flag_gems.isreal(inp)
+    assert _isreal_input_metadata(inp) == original
+    assert torch.equal(_isreal_input_bytes(inp), original_bytes)
+    _assert_isreal_output(result, original)
+    return result
 
 
 def _skip_complex_reference(dtype, special=False):
@@ -96,8 +134,7 @@ def test_isreal(shape, dtype):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.isreal(ref_inp)
-    res_out = flag_gems.isreal(inp)
-    _assert_isreal_output(res_out, inp)
+    res_out = _call_isreal(inp)
 
     assert res_out.dtype == torch.bool
     utils.gems_assert_equal(res_out, ref_out)
@@ -133,8 +170,7 @@ def test_isreal_special_values(dtype):
     assert inp.dtype == dtype and inp.device.type == torch.device(flag_gems.device).type
     ref_inp = utils.to_reference(inp)
     ref_out = torch.isreal(ref_inp)
-    res_out = flag_gems.isreal(inp)
-    _assert_isreal_output(res_out, inp)
+    res_out = _call_isreal(inp)
     assert res_out.dtype == torch.bool
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -152,8 +188,7 @@ def test_isreal_non_contiguous(dtype):
     ref_inp = utils.to_reference(inp.clone())
 
     ref_out = torch.isreal(ref_inp)
-    res_out = flag_gems.isreal(inp)
-    _assert_isreal_output(res_out, inp)
+    res_out = _call_isreal(inp)
 
     assert res_out.dtype == torch.bool
     assert res_out.shape == inp.shape
@@ -168,8 +203,7 @@ def test_isreal_empty(dtype):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.isreal(ref_inp)
-    res_out = flag_gems.isreal(inp)
-    _assert_isreal_output(res_out, inp)
+    res_out = _call_isreal(inp)
 
     assert res_out.dtype == torch.bool
     assert res_out.numel() == 0
@@ -185,8 +219,7 @@ def test_isreal_conj_bit():
     ref_inp = utils.to_reference(inp.clone())
 
     ref_out = torch.isreal(ref_inp)
-    res_out = flag_gems.isreal(inp)
-    _assert_isreal_output(res_out, inp)
+    res_out = _call_isreal(inp)
 
     assert res_out.dtype == torch.bool
     utils.gems_assert_equal(res_out, ref_out)
