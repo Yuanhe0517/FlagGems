@@ -111,7 +111,7 @@ def _checked_median(inp):
     result_end = result_start + result.untyped_storage().nbytes()
     input_start = snapshot[5]
     input_end = input_start + snapshot[10]
-    assert result_end <= input_start or input_end <= result_start
+    assert snapshot[10] == 0 or result_end <= input_start or input_end <= result_start
     return result
 
 
