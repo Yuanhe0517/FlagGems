@@ -66,6 +66,50 @@ def _make_input(shape, dtype):
     return torch.randn(shape, dtype=dtype, device=flag_gems.device)
 
 
+def _median_input_snapshot(inp):
+    metadata = (
+        inp.device,
+        inp.dtype,
+        tuple(inp.shape),
+        inp.stride(),
+        inp.storage_offset(),
+        inp.untyped_storage().data_ptr(),
+        inp.data_ptr(),
+        inp.requires_grad,
+        inp.is_conj(),
+        inp.is_neg(),
+    )
+    # Observe raw storage on CPU, preserving the original dtype and striding.
+    # Typed device-to-CPU conversion can change values on some backends.
+    raw = inp.untyped_storage().cpu()
+    logical = torch.empty(0, dtype=inp.dtype).set_(
+        raw, inp.storage_offset(), tuple(inp.shape), inp.stride()
+    )
+    values = logical.contiguous().reshape(-1).view(torch.uint8).clone()
+    return metadata, values
+
+
+def _checked_median(inp):
+    snapshot, original_bytes = _median_input_snapshot(inp)
+
+    def assert_readonly():
+        metadata, values = _median_input_snapshot(inp)
+        assert metadata == snapshot
+        assert torch.equal(values, original_bytes)
+
+    try:
+        result = flag_gems.median(inp)
+    except BaseException:
+        assert_readonly()
+        raise
+    assert_readonly()
+    assert isinstance(result, torch.Tensor)
+    assert result.device == snapshot[0] and result.dtype == snapshot[1]
+    assert tuple(result.shape) == ()
+    assert result.untyped_storage().data_ptr() != snapshot[5]
+    return result
+
+
 def _has_unique_median_indices(inp, dim, values, keepdim):
     if inp.ndim == 0:
         return True
@@ -147,7 +191,7 @@ def test_median_no_dim(shape, dtype):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.median(ref_inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -181,7 +225,7 @@ def test_median_nan_no_dim(dtype):
     ref_inp = utils.to_reference(inp)
 
     ref_no_dim = torch.median(ref_inp)
-    res_no_dim = flag_gems.median(inp)
+    res_no_dim = _checked_median(inp)
     utils.gems_assert_equal(res_no_dim, ref_no_dim, equal_nan=True)
 
 
@@ -216,7 +260,7 @@ def test_median_no_dim_lastdim_sort(dtype, shape):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.median(ref_inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -231,7 +275,7 @@ def test_median_no_dim_lastdim_sort_nan(dtype, width):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.median(ref_inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     utils.gems_assert_equal(res_out, ref_out, equal_nan=True)
     assert torch.isnan(res_out).item()
@@ -247,7 +291,7 @@ def test_median_no_dim_direct_flat_nan(dtype, width):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.median(ref_inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     utils.gems_assert_equal(res_out, ref_out, equal_nan=True)
     assert torch.isnan(res_out).item()
@@ -438,7 +482,7 @@ def test_median_empty_no_dim(dtype):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.median(ref_inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     utils.gems_assert_equal(res_out, ref_out, equal_nan=dtype.is_floating_point)
 
@@ -458,7 +502,7 @@ def test_median_extra_no_dim_dtypes(dtype):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.median(ref_inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     utils.gems_assert_equal(res_out, ref_out)
 
@@ -475,7 +519,7 @@ def test_median_bool_no_dim():
 
     inp = torch.tensor([True, False, True], device=flag_gems.device)
     ref_out = torch.median(inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     assert res_out.dtype == ref_out.dtype
     assert res_out.device == ref_out.device
@@ -494,7 +538,7 @@ def test_median_bool_no_dim_full_registration():
 
     inp = torch.tensor([True, False, True, False, True], device=flag_gems.device)
     ref_out = torch.median(inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     assert res_out.dtype == ref_out.dtype
     assert res_out.device == ref_out.device
@@ -515,7 +559,7 @@ def test_median_bool_no_dim_large(width):
     vals = torch.arange(width, device=flag_gems.device)
     inp = (vals * 37) % 5 < 3
     ref_out = torch.median(inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     assert res_out.dtype == ref_out.dtype
     assert res_out.device == ref_out.device
@@ -536,7 +580,7 @@ def test_median_bool_no_dim_beyond_old_flat_limit():
     vals = torch.arange(width, device=flag_gems.device)
     inp = vals % 5 < 3
     ref_out = torch.median(inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     assert res_out.dtype == ref_out.dtype
     assert res_out.device == ref_out.device
@@ -584,7 +628,7 @@ def test_median_full_registration_nan_semantics_no_dim():
     ref_inp = utils.to_reference(inp)
 
     ref_no_dim = torch.median(ref_inp)
-    res_no_dim = flag_gems.median(inp)
+    res_no_dim = _checked_median(inp)
     utils.gems_assert_equal(res_no_dim, ref_no_dim, equal_nan=True)
 
 
@@ -606,7 +650,7 @@ def test_median_full_registration_nan_semantics_dim():
 @pytest.mark.median
 def test_median_empty_complex_no_dim():
     inp = torch.empty((0,), dtype=torch.complex64, device=flag_gems.device)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     assert res_out.dtype == torch.complex64
     assert torch.isnan(res_out.real)
@@ -618,7 +662,7 @@ def test_median_complex_nonempty_errors_no_dim():
     inp = torch.tensor([1 + 2j, 3 + 4j], dtype=torch.complex64, device=flag_gems.device)
 
     with pytest.raises((RuntimeError, NotImplementedError)):
-        flag_gems.median(inp)
+        _checked_median(inp)
 
 
 @pytest.mark.median_dim
@@ -682,7 +726,7 @@ def test_median_non_contiguous_no_dim():
     ref_inp = utils.to_reference(inp)
 
     ref_no_dim = torch.median(ref_inp)
-    res_no_dim = flag_gems.median(inp)
+    res_no_dim = _checked_median(inp)
     utils.gems_assert_equal(res_no_dim, ref_no_dim)
 
 
@@ -1171,7 +1215,7 @@ def test_median_f16_key_select_width640_nonlast_and_no_dim_no_dim(dtype):
     width = 640
     inp_flat = torch.randn((width,), dtype=dtype, device=flag_gems.device)
     ref_flat = torch.median(utils.to_reference(inp_flat))
-    res_flat = flag_gems.median(inp_flat)
+    res_flat = _checked_median(inp_flat)
     utils.gems_assert_equal(res_flat, ref_flat)
 
 
@@ -1216,7 +1260,7 @@ def test_median_no_dim_fallback_nan(dtype, width):
     ref_inp = utils.to_reference(inp)
 
     ref_out = torch.median(ref_inp)
-    res_out = flag_gems.median(inp)
+    res_out = _checked_median(inp)
 
     utils.gems_assert_equal(res_out, ref_out, equal_nan=True)
     assert torch.isnan(res_out).item()
