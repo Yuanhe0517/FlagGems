@@ -28,11 +28,23 @@ def _deterministic_seed():
     torch.manual_seed(0)
 
 
+def _skip_native_half_reference(dtype):
+    if (
+        flag_gems.vendor_name == "kunlunxin"
+        and dtype == torch.float16
+        and not utils.TO_CPU
+    ):
+        pytest.skip(
+            "Kunlunxin native Half AMP unscale returns incorrect values; CPU reference remains covered"
+        )
+
+
 @pytest.mark.amp_foreach_non_finite_check_and_unscale_
 @pytest.mark.underscore_amp_foreach_non_finite_check_and_unscale_
 @pytest.mark.parametrize("dtype", PRIMARY_FLOAT_DTYPES)
 def test_amp_foreach_non_finite_check_and_unscale_(dtype):
     """Test _amp_foreach_non_finite_check_and_unscale_ with normal tensors."""
+    _skip_native_half_reference(dtype)
     # PyTorch expects inv_scale and found_inf to be float32
     inv_scale = torch.tensor(2.0, device=flag_gems.device, dtype=torch.float32)
     found_inf = torch.tensor(0.0, device=flag_gems.device, dtype=torch.float32)
@@ -68,6 +80,7 @@ def test_amp_foreach_non_finite_check_and_unscale_(dtype):
 @pytest.mark.parametrize("dtype", PRIMARY_FLOAT_DTYPES)
 def test_amp_foreach_non_finite_check_and_unscale__inf(dtype):
     """Test _amp_foreach_non_finite_check_and_unscale_ with inf values."""
+    _skip_native_half_reference(dtype)
     # PyTorch expects inv_scale and found_inf to be float32
     inv_scale = torch.tensor(2.0, device=flag_gems.device, dtype=torch.float32)
     found_inf = torch.tensor(0.0, device=flag_gems.device, dtype=torch.float32)
@@ -106,6 +119,7 @@ def test_amp_foreach_non_finite_check_and_unscale__inf(dtype):
 @pytest.mark.parametrize("dtype", PRIMARY_FLOAT_DTYPES)
 def test_amp_foreach_non_finite_check_and_unscale__nan(dtype):
     """Test _amp_foreach_non_finite_check_and_unscale_ with nan values."""
+    _skip_native_half_reference(dtype)
     # PyTorch expects inv_scale and found_inf to be float32
     inv_scale = torch.tensor(2.0, device=flag_gems.device, dtype=torch.float32)
     found_inf = torch.tensor(0.0, device=flag_gems.device, dtype=torch.float32)
