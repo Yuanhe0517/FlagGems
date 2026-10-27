@@ -75,6 +75,8 @@ def test_foreach_pow_scalar_list_empty_list():
 
 @pytest.mark.foreach_pow_scalar_list
 def test_foreach_pow_scalar_list_bool_base():
+    if flag_gems.vendor_name == "mthreads" and not utils.TO_CPU:
+        pytest.skip("MUSA native pow does not support boolean-base ScalarList inputs")
     if flag_gems.vendor_name == "kunlunxin" and not utils.TO_CPU:
         pytest.skip(
             "Kunlunxin native pow does not support boolean-base ScalarList inputs"

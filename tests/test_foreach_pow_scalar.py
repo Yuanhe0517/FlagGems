@@ -74,6 +74,8 @@ def test_foreach_pow_scalar_empty_list():
 @pytest.mark.foreach_pow_scalar
 @pytest.mark.parametrize("exponent", [True, False, 0, 2, 0.5, -1.0, float("inf")])
 def test_foreach_pow_scalar_bool_base(exponent):
+    if flag_gems.vendor_name == "mthreads" and not utils.TO_CPU:
+        pytest.skip("MUSA native pow does not support boolean-base inputs")
     if not utils.TO_CPU and (
         (flag_gems.vendor_name == "ascend" and isinstance(exponent, bool))
         or (
