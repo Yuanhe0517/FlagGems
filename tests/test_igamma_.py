@@ -66,7 +66,11 @@ def _assert_readonly_value(inp, snapshot):
 
 def _comparison_result(result):
     # Call only after target-device/dtype/shape and return-identity assertions.
-    return _suiyuan_double_cpu(result) if _is_suiyuan_double(result) else result
+    return (
+        _suiyuan_double_cpu(result)
+        if utils.TO_CPU and _is_suiyuan_double(result)
+        else result
+    )
 
 
 def _input_metadata(inp):
