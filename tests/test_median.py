@@ -525,7 +525,10 @@ def test_median_extra_no_dim_dtypes(dtype):
 
     if double_cpu_fixture:
         # The checked call has already enforced the original target output ABI.
+        negative_view = res_out.is_neg()
         res_out = _median_input_snapshot(res_out)[1].view(dtype).reshape(())
+        if negative_view:
+            res_out = -res_out
     utils.gems_assert_equal(res_out, ref_out)
 
 
