@@ -78,6 +78,7 @@ def _median_input_snapshot(inp):
         inp.requires_grad,
         inp.is_conj(),
         inp.is_neg(),
+        inp.untyped_storage().nbytes(),
     )
     # Observe raw storage on CPU, preserving the original dtype and striding.
     # Typed device-to-CPU conversion can change values on some backends.
@@ -106,7 +107,11 @@ def _checked_median(inp):
     assert isinstance(result, torch.Tensor)
     assert result.device == snapshot[0] and result.dtype == snapshot[1]
     assert tuple(result.shape) == ()
-    assert result.untyped_storage().data_ptr() != snapshot[5]
+    result_start = result.untyped_storage().data_ptr()
+    result_end = result_start + result.untyped_storage().nbytes()
+    input_start = snapshot[5]
+    input_end = input_start + snapshot[10]
+    assert result_end <= input_start or input_end <= result_start
     return result
 
 
