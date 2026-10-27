@@ -107,7 +107,9 @@ def test_softplus_backward(shape, dtype):
     # the reference to Double can select a different branch.
     ref_dtype = torch.float32 if dtype in (torch.float16, torch.bfloat16) else dtype
     ref_inp = utils.to_reference(res_inp, upcast=False).to(dtype=ref_dtype)
-    ref_grad_output = utils.to_reference(res_grad_output, upcast=False).to(dtype=ref_dtype)
+    ref_grad_output = utils.to_reference(res_grad_output, upcast=False).to(
+        dtype=ref_dtype
+    )
 
     ref_grad_input = torch.ops.aten.softplus_backward(
         ref_grad_output, ref_inp, beta=beta, threshold=threshold
