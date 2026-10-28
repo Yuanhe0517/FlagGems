@@ -60,12 +60,22 @@ def _snapshot(tensor):
     return metadata, raw
 
 
-def _run_with_contract(inp, scale, zero_point, quant_min, quant_max, grad_factor=1.0):
+_OMITTED_GRAD_FACTOR = object()
+
+
+def _run_with_contract(
+    inp, scale, zero_point, quant_min, quant_max, grad_factor=_OMITTED_GRAD_FACTOR
+):
     inputs = [inp, scale, zero_point]
     snapshots = [_snapshot(value) for value in inputs]
-    result = flag_gems._fake_quantize_learnable_per_tensor_affine(
-        inp, scale, zero_point, quant_min, quant_max, grad_factor
-    )
+    if grad_factor is _OMITTED_GRAD_FACTOR:
+        result = flag_gems._fake_quantize_learnable_per_tensor_affine(
+            inp, scale, zero_point, quant_min, quant_max
+        )
+    else:
+        result = flag_gems._fake_quantize_learnable_per_tensor_affine(
+            inp, scale, zero_point, quant_min, quant_max, grad_factor
+        )
     assert isinstance(result, torch.Tensor)
     assert result.device == inp.device
     assert result.dtype == inp.dtype
