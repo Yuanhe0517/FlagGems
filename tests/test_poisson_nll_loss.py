@@ -117,6 +117,15 @@ def test_accuracy_poisson_nll_loss_broadcast_noncontiguous(reduction):
 @pytest.mark.poisson_nll_loss
 @pytest.mark.parametrize("reduction", [0, 1, 2])
 def test_accuracy_poisson_nll_loss_empty(reduction):
+    if (
+        flag_gems.vendor_name == "enflame"
+        and not utils.TO_CPU
+        and reduction == 1
+    ):
+        pytest.skip(
+            "Enflame native Poisson NLL aborts for empty mean reduction; "
+            "CPU reference remains covered"
+        )
     input = torch.empty((0, 3), device=flag_gems.device)
     target = torch.empty_like(input)
     ref = torch.ops.aten.poisson_nll_loss(
