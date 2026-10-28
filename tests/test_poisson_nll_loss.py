@@ -294,6 +294,15 @@ def test_poisson_nll_loss_bool_input_nonlog_rejected(full, reduction):
 def test_poisson_nll_loss_complex(dtype, log_input, reduction, case):
     if dtype == torch.complex128 and not utils.fp64_is_supported:
         pytest.skip("FP64 is not supported")
+    if (
+        flag_gems.vendor_name == "enflame"
+        and not utils.TO_CPU
+        and not utils.complex_is_supported
+    ):
+        pytest.skip(
+            "Enflame target does not support native complex compute; "
+            "CPU reference remains covered"
+        )
     if flag_gems.vendor_name == "mthreads" and not utils.TO_CPU and case != "empty":
         pytest.skip(
             "MUSA Poisson NLL reference does not support nonempty complex tensors"
@@ -306,7 +315,11 @@ def test_poisson_nll_loss_complex(dtype, log_input, reduction, case):
     ):
         pytest.skip("Ascend native empty complex mean does not support this dtype")
     shape = (65537,) if case == "large" else (0, 3) if case == "empty" else (3, 7)
-    factory_device = "cpu" if flag_gems.vendor_name == "ascend" else flag_gems.device
+    factory_device = (
+        "cpu"
+        if flag_gems.vendor_name in ("ascend", "enflame")
+        else flag_gems.device
+    )
     inp = torch.randn(shape, dtype=dtype, device=factory_device).to(flag_gems.device)
     target = torch.randn(shape, dtype=dtype, device=factory_device).to(flag_gems.device)
     if case == "broadcast_conjugate":
@@ -329,7 +342,7 @@ def test_poisson_nll_loss_complex(dtype, log_input, reduction, case):
     assert result.device == inp.device
     assert result.dtype == reference.dtype
     assert result.shape == reference.shape
-    if flag_gems.vendor_name == "ascend" or (
+    if flag_gems.vendor_name in ("ascend", "enflame") or (
         flag_gems.vendor_name == "kunlunxin" and result.is_complex()
     ):
         result, reference = result.cpu(), reference.cpu()
@@ -344,6 +357,15 @@ def test_poisson_nll_loss_complex(dtype, log_input, reduction, case):
 
 @pytest.mark.poisson_nll_loss
 def test_poisson_nll_loss_complex_target_full_rejected():
+    if (
+        flag_gems.vendor_name == "enflame"
+        and not utils.TO_CPU
+        and not utils.complex_is_supported
+    ):
+        pytest.skip(
+            "Enflame target does not support native complex compute; "
+            "CPU reference remains covered"
+        )
     inp = torch.ones(3, dtype=torch.complex64, device="cpu").to(flag_gems.device)
     with pytest.raises((RuntimeError, ValueError)) as error:
         torch.ops.aten.poisson_nll_loss(
