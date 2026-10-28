@@ -56,13 +56,9 @@ def _assert_inputs_preserved(snapshots):
         assert torch.equal(current[2], raw)
 
 
-def _assert_output_abi(result, original, shape, dtype, snapshots):
-    assert isinstance(result, torch.Tensor)
-    assert result.device == original.device
-    assert result.dtype == dtype
-    assert result.shape == shape
-    if result.numel():
-        storage = result.untyped_storage()
+def _assert_no_input_alias(result, snapshots):
+    storage = result.untyped_storage()
+    if storage.nbytes():
         start, end = storage.data_ptr(), storage.data_ptr() + storage.nbytes()
         for value, metadata, _ in snapshots:
             if value.device != result.device or not metadata[10]:
@@ -70,6 +66,14 @@ def _assert_output_abi(result, original, shape, dtype, snapshots):
             assert storage._cdata != metadata[8]
             input_start, input_end = metadata[9], metadata[9] + metadata[10]
             assert end <= input_start or input_end <= start
+
+
+def _assert_output_abi(result, original, shape, dtype, snapshots):
+    assert isinstance(result, torch.Tensor)
+    assert result.device == original.device
+    assert result.dtype == dtype
+    assert result.shape == shape
+    _assert_no_input_alias(result, snapshots)
 
 
 def _assert_saved_stat_close(result, reference, input_dtype):
@@ -174,6 +178,7 @@ def test_batch_norm_with_update_functional(shape, dtype, affine):
     assert res_reserve.device == inp.device
     assert res_reserve.dtype == torch.uint8
     assert res_reserve.ndim == 1
+    _assert_no_input_alias(res_reserve, snapshots)
 
     utils.gems_assert_close(res_out, ref_out, dtype)
     _assert_saved_stat_close(res_save_mean, ref_save_mean, dtype)
