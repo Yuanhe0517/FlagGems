@@ -24,7 +24,9 @@ SHAPES = [(2, 3)] if cfg.QUICK_MODE else [(2, 3), (128, 256), (512, 512)]
 
 
 def _poisson_ones(shape, dtype):
-    if flag_gems.vendor_name == "kunlunxin" and dtype == torch.float64:
+    if (flag_gems.vendor_name == "kunlunxin" and dtype == torch.float64) or (
+        flag_gems.vendor_name == "enflame" and dtype in (torch.int64, torch.float64)
+    ):
         value = torch.ones(shape, dtype=dtype, device="cpu")
         return (
             value.reshape(-1)
@@ -37,10 +39,12 @@ def _poisson_ones(shape, dtype):
 
 
 def _poisson_reference_input(value):
-    if (
-        utils.TO_CPU
-        and flag_gems.vendor_name == "kunlunxin"
-        and value.dtype == torch.float64
+    if utils.TO_CPU and (
+        (flag_gems.vendor_name == "kunlunxin" and value.dtype == torch.float64)
+        or (
+            flag_gems.vendor_name == "enflame"
+            and value.dtype in (torch.int64, torch.float64)
+        )
     ):
         return (
             value.reshape(-1)
@@ -181,11 +185,15 @@ def test_poisson_nll_loss_mixed_dtype_promotion(
         0,
     )
     result = flag_gems.poisson_nll_loss(input, target, True, False, 1e-8, 0)
+    assert result.device == input.device
+    assert result.shape == ref.shape
     assert result.dtype == expected_dtype
     assert ref.dtype == expected_dtype
-    if flag_gems.vendor_name == "kunlunxin" and expected_dtype == torch.float64:
-        assert result.device == input.device
-        assert result.shape == ref.shape
+    if (
+        utils.TO_CPU
+        and flag_gems.vendor_name in ("kunlunxin", "enflame")
+        and expected_dtype == torch.float64
+    ):
         observed = (
             result.reshape(-1)
             .view(torch.uint8)
