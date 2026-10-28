@@ -19,7 +19,7 @@ import triton
 import triton.language as tl
 
 from flag_gems.ops.topk import _get_finfo_val, _get_iinfo_val, argsort
-from flag_gems.runtime import torch_device_fn
+from flag_gems.runtime import device, torch_device_fn
 from flag_gems.utils import libentry
 
 logger = logging.getLogger(__name__)
@@ -156,6 +156,33 @@ def compute_global_hist_kernel(
 
 
 @triton.jit
+def _compute_global_hist_vectorized(
+    arr_ptr, out_ptr, num_passes: tl.constexpr, m,
+    n, tiles_n_per_cta: tl.constexpr,
+    TILE_N: tl.constexpr, TILE_R: tl.constexpr,
+    num_bits_per_pass: tl.constexpr, descending: tl.constexpr,
+):
+    # Keep a tile in registers across radix digits. A 1-D histogram avoids
+    # the generic kernel's [radix_bins, tile] int64 broadcast/reductions.
+    # Out-of-range keys are ignored by tl.histogram, including the tail tile.
+    pid = tl.program_id(0)
+    row = pid % m
+    tile = pid // m
+    R: tl.constexpr = 1 << num_bits_per_pass
+    B: tl.constexpr = TILE_N * tiles_n_per_cta
+    offsets = tile * B + tl.arange(0, B)
+    x = tl.load(arr_ptr + row * n + offsets, offsets < n, other=0)
+    ordered = convert_to_uint_preverse_order(x, descending)
+    bins = tl.arange(0, R)
+    for p in range(num_passes):
+        key = (ordered >> (p * num_bits_per_pass)) & (R - 1)
+        key = tl.where(offsets < n, key.to(tl.int32), R)
+        hist = tl.histogram(key, R)
+        tl.atomic_add(out_ptr + (row * num_passes + p) * R + bins,
+                      hist, sem="relaxed")
+
+
+@triton.jit
 def sweep(
     arr_ptr,
     associate_arr_ptr,  # inputs: (key & value)
@@ -255,6 +282,53 @@ def sweep(
             tl.store(associate_out_ptr + pid_m * N + pos, associate_arr, mask=matches)
 
 
+# Explicit inter-tile offsets avoid polling other CTAs during scatter.
+@triton.jit
+def _radix_tile_histogram(X, Counts, N, T, R: tl.constexpr, SHIFT,
+                   B: tl.constexpr, DESC: tl.constexpr):
+    row = tl.program_id(0)
+    tile = tl.program_id(1)
+    i = tile * B + tl.arange(0, B)
+    x = tl.load(X + row * N + i, i < N, other=0)
+    key = (convert_to_uint_preverse_order(x, DESC) >> SHIFT) & (R - 1)
+    digit = tl.where(i < N, key.to(tl.int32), R)
+    hist = tl.histogram(digit, R)
+    bins = tl.arange(0, R)
+    tl.store(Counts + (row * R + bins) * T + tile, hist)
+
+
+@triton.jit
+def _radix_tile_prefix(Counts, Prefix, Global, T, R: tl.constexpr,
+                PASSES, PASS, BT: tl.constexpr):
+    row = tl.program_id(0)
+    bucket = tl.program_id(1)
+    t = tl.arange(0, BT)
+    counts = tl.load(Counts + (row * R + bucket) * T + t, t < T, other=0)
+    prefix = tl.cumsum(counts, 0) - counts
+    base = tl.load(Global + (row * PASSES + PASS) * R + bucket)
+    tl.store(Prefix + (row * R + bucket) * T + t, prefix + base, t < T)
+
+
+@triton.jit
+def _radix_scatter_vectorized(X, Ids, Y, OutIds, Prefix, N, T,
+                       R: tl.constexpr, SHIFT, B: tl.constexpr,
+                       BR: tl.constexpr, DESC: tl.constexpr):
+    row = tl.program_id(0)
+    tile = tl.program_id(1)
+    rb = tl.program_id(2)
+    i = tile * B + tl.arange(0, B)
+    bins = rb * BR + tl.arange(0, BR)
+    values = tl.load(X + row * N + i, i < N, other=0)
+    ids = tl.load(Ids + row * N + i, i < N, other=0)
+    digit = (convert_to_uint_preverse_order(values, DESC) >> SHIFT) & (R - 1)
+    matches = (digit[None, :] == bins[:, None]) & (i[None, :] < N)
+    prefix = tl.cumsum(matches.to(tl.int32), 1) - matches.to(tl.int32)
+    base = tl.load(Prefix + (row * R + bins) * T + tile)
+    pos = base[:, None] + prefix
+    tl.store(Y + row * N + pos, tl.broadcast_to(values[None, :], (BR, B)), matches)
+    tl.store(OutIds + row * N + pos, tl.broadcast_to(ids[None, :], (BR, B)), matches)
+
+
 def radix_sort(arr, k_bits=8, descending=False):
     n = arr.shape[-1]
     m = arr.numel() // n
@@ -277,7 +351,14 @@ def radix_sort(arr, k_bits=8, descending=False):
         global_hist = torch.zeros(
             (m, n_passes, num_bins), device=arr.device, dtype=torch.int32
         )
-        compute_global_hist_kernel[grid_for_global_hist](
+        # Preserve the sort algorithm and operator dispatch. Only the MetaX
+        # histogram kernel changes; other backends retain the original path.
+        histogram_kernel = (
+            _compute_global_hist_vectorized
+            if device.vendor_name == "metax"
+            else compute_global_hist_kernel
+        )
+        histogram_kernel[grid_for_global_hist](
             arr,
             global_hist,
             n_passes,
@@ -302,37 +383,68 @@ def radix_sort(arr, k_bits=8, descending=False):
         arr_out = torch.empty_like(arr)
         indices_out = torch.empty_like(indices_in)
 
-        TILE_R = 8
+        # The vector scatter path is selected by device, dtype and workload
+        # size; unsupported/small cases retain the original stable sweep.
+        vector_scatter = (
+            device.vendor_name == "metax"
+            and k_bits == 4
+            and 4096 <= n <= 262144
+            and dtype in (torch.float32, torch.float16, torch.bfloat16, torch.int32)
+        )
+        if vector_scatter:
+            TILE_N, TILE_R = 512, 4
+        else:
+            TILE_N, TILE_R = 2048, 8
         grid_r = triton.cdiv(num_bins, TILE_R)
-        TILE_N = 2048
         grid_n = triton.cdiv(n, TILE_N)
         grid_for_sweep = (m * grid_n, grid_r)
 
-        status = torch.empty(
-            (m, num_bins, grid_n), device=arr.device, dtype=torch.uint32
-        )
+        if vector_scatter:
+            counts = torch.empty(
+                (m, num_bins, grid_n), device=arr.device, dtype=torch.int32
+            )
+            tile_offsets = torch.empty_like(counts)
+        else:
+            status = torch.empty(
+                (m, num_bins, grid_n), device=arr.device, dtype=torch.uint32
+            )
 
         for i in range(0, n_passes):
             bit_offset = i * k_bits
-            status.zero_()
-            sweep[grid_for_sweep](
-                arr_in,
-                indices_in,
-                arr_out,
-                indices_out,
-                ex_cumsum_bins,
-                status,
-                n_passes,
-                i,
-                bit_offset,
-                m,
-                n,
-                grid_n,
-                TILE_N,
-                TILE_R,
-                k_bits,
-                descending,
-            )
+            if vector_scatter:
+                _radix_tile_histogram[(m, grid_n)](
+                    arr_in, counts, n, grid_n, num_bins, bit_offset,
+                    TILE_N, descending, num_warps=4,
+                )
+                _radix_tile_prefix[(m, num_bins)](
+                    counts, tile_offsets, ex_cumsum_bins, grid_n, num_bins,
+                    n_passes, i, triton.next_power_of_2(grid_n), num_warps=4,
+                )
+                _radix_scatter_vectorized[(m, grid_n, grid_r)](
+                    arr_in, indices_in, arr_out, indices_out, tile_offsets,
+                    n, grid_n, num_bins, bit_offset, TILE_N, TILE_R, descending,
+                    num_warps=4,
+                )
+            else:
+                status.zero_()
+                sweep[grid_for_sweep](
+                    arr_in,
+                    indices_in,
+                    arr_out,
+                    indices_out,
+                    ex_cumsum_bins,
+                    status,
+                    n_passes,
+                    i,
+                    bit_offset,
+                    m,
+                    n,
+                    grid_n,
+                    TILE_N,
+                    TILE_R,
+                    k_bits,
+                    descending,
+                )
             # print(f"< sorted last {bit_offset + k_bits:>2d} bits: {arr_out}")
             arr_in, arr_out = arr_out, arr_in
             indices_in, indices_out = indices_out, indices_in
