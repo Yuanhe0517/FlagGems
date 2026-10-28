@@ -181,14 +181,15 @@ def test_poisson_nll_loss_mixed_dtype_promotion(
         and not utils.TO_CPU
         and (input_dtype, target_dtype)
         in (
+            (torch.bool, torch.float32),
             (torch.int64, torch.float16),
             (torch.float16, torch.int64),
             (torch.float32, torch.float64),
         )
     ):
         pytest.skip(
-            "Enflame native Poisson NLL computes incorrect values for this mixed "
-            "64-bit configuration; CPU reference remains covered"
+            "Enflame native Poisson NLL does not support this mixed "
+            "dtype configuration; CPU reference remains covered"
         )
     ref = torch.ops.aten.poisson_nll_loss(
         _poisson_reference_input(input),
@@ -222,6 +223,11 @@ def test_poisson_nll_loss_mixed_dtype_promotion(
 
 @pytest.mark.poisson_nll_loss
 def test_poisson_nll_loss_mixed_dtype_exceptions():
+    if flag_gems.vendor_name == "enflame" and not utils.TO_CPU:
+        pytest.skip(
+            "Enflame native Poisson NLL does not support bool exp; "
+            "CPU reference remains covered"
+        )
     bool_input = torch.ones((2, 3), dtype=torch.bool, device=flag_gems.device)
     float_input = torch.ones((2, 3), device=flag_gems.device)
     for inp, target, full in (
