@@ -120,24 +120,12 @@ def test_ldexp_autograd():
     utils.gems_assert_close(input_grad, ref_input_grad, input_grad.dtype)
 
 
-def _ldexp_out_skip_missing_reference(dtype, exponent_dtype):
-    if (
-        flag_gems.vendor_name == "enflame"
-        and not utils.TO_CPU
-        and dtype in (torch.float16, torch.float32, torch.bfloat16)
-        and exponent_dtype in (torch.int32, torch.int64)
-    ):
-        pytest.skip(
-            "Enflame native ldexp floating self/integer exponent is not implemented"
-        )
-
-
 def _ldexp_out_reference(inp, exponent):
     if flag_gems.vendor_name == "enflame":
-        # The supported CPU-reference mode retains the original operand dtype.
-        assert utils.TO_CPU
-        lhs = utils.to_reference(inp, False)
-        rhs = utils.to_reference(exponent, False)
+        # The native GCU Out reference is unavailable; both reference modes
+        # use genuine CPU same-dtype math without changing global ref selection.
+        lhs = inp.to(device="cpu")
+        rhs = exponent.to(device="cpu")
         assert lhs.dtype == inp.dtype and rhs.dtype == exponent.dtype
     else:
         lhs = utils.to_reference(inp, True)
@@ -204,7 +192,6 @@ def _call_ldexp_out_checked(inp, exponent, out):
 @pytest.mark.parametrize("shape", [*utils.POINTWISE_SHAPES, (2, 0, 3)])
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test_ldexp_out(shape, dtype):
-    _ldexp_out_skip_missing_reference(dtype, torch.int32)
     torch.manual_seed(0)
     inp = torch.randn(shape, dtype=dtype, device=flag_gems.device)
     exponent = torch.randint(-8, 9, shape, dtype=torch.int32, device=inp.device)
@@ -216,7 +203,8 @@ def test_ldexp_out(shape, dtype):
     assert result is out and result.data_ptr() == pointer
     assert result.device == inp.device and result.dtype == dtype
     assert result.shape == reference.shape
-    utils.gems_assert_close(result, reference, dtype)
+    compared = result.to(device="cpu") if flag_gems.vendor_name == "enflame" else result
+    utils.gems_assert_close(compared, reference, dtype)
     assert inp.device == inp_before.device and inp.dtype == inp_before.dtype
     assert (
         exponent.device == exponent_before.device
@@ -229,7 +217,6 @@ def test_ldexp_out(shape, dtype):
 @pytest.mark.ldexp_out
 @pytest.mark.parametrize("dtype", utils.FLOAT_DTYPES)
 def test_ldexp_out_broadcast_noncontiguous(dtype):
-    _ldexp_out_skip_missing_reference(dtype, torch.int64)
     torch.manual_seed(0)
     inp = torch.randn((19, 7), dtype=dtype, device=flag_gems.device).T
     exponent = torch.randint(-4, 5, (19,), dtype=torch.int64, device=inp.device)
@@ -241,5 +228,6 @@ def test_ldexp_out_broadcast_noncontiguous(dtype):
     assert result is out and result.data_ptr() == pointer and result.stride() == stride
     assert result.device == inp.device and result.dtype == dtype
     assert result.shape == reference.shape
-    utils.gems_assert_close(result, reference, dtype)
+    compared = result.to(device="cpu") if flag_gems.vendor_name == "enflame" else result
+    utils.gems_assert_close(compared, reference, dtype)
     assert torch.equal(backing[:, 1::2].cpu(), torch.full((7, 19), 123, dtype=dtype))
