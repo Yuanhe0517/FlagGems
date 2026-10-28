@@ -137,6 +137,11 @@ def test_accuracy_poisson_nll_loss_empty(reduction):
         reduction,
     )
     result = flag_gems.poisson_nll_loss(input, target, True, False, 1e-8, reduction)
+    if flag_gems.vendor_name == "enflame" and not utils.TO_CPU and reduction == 2:
+        assert result.device == ref.device == input.device
+        assert result.dtype == ref.dtype == torch.float32
+        assert result.shape == ref.shape == torch.Size([])
+        result, ref = result.cpu(), ref.cpu()
     utils.gems_assert_close(result, ref, torch.float32, equal_nan=True)
 
 
