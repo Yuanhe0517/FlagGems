@@ -160,8 +160,7 @@ def _call_sgn_out_checked(inp, *, out):
     original = _sgn_out_snapshot(inp)
     original_out = _sgn_out_snapshot(out)
     aliases_out = all(
-        original[0][index] == original_out[0][index]
-        for index in (1, 2, 3, 4, 5, 8, 9)
+        original[0][index] == original_out[0][index] for index in (1, 2, 3, 4, 5, 8, 9)
     )
     try:
         result = flag_gems.sgn_out(inp, out=out)
